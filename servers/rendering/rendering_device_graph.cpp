@@ -802,10 +802,14 @@ void RenderingDeviceGraph::_get_draw_list_render_pass_and_framebuffer(const Reco
 	// Build a unique key from the load and store ops for each attachment.
 	const RDD::AttachmentLoadOp *load_ops = p_draw_list_command->load_ops();
 	const RDD::AttachmentStoreOp *store_ops = p_draw_list_command->store_ops();
+	const RDD::AttachmentLoadOp *stencil_load_ops = p_draw_list_command->stencil_load_ops();
+	const RDD::AttachmentStoreOp *stencil_store_ops = p_draw_list_command->stencil_store_ops();
 	uint64_t key = 0;
 	for (uint32_t i = 0; i < p_draw_list_command->trackers_count; i++) {
-		key |= uint64_t(load_ops[i]) << (i * 3);
-		key |= uint64_t(store_ops[i]) << (i * 3 + 2);
+		key |= uint64_t(load_ops[i]) << (i * 6);
+		key |= uint64_t(store_ops[i]) << (i * 6 + 2);
+		key |= uint64_t(stencil_load_ops[i]) << (i * 6 + 3);
+		key |= uint64_t(stencil_store_ops[i]) << (i * 6 + 5);
 	}
 
 	// Check the storage map if the render pass and the framebuffer needs to be created.
@@ -815,7 +819,9 @@ void RenderingDeviceGraph::_get_draw_list_render_pass_and_framebuffer(const Reco
 		FramebufferStorage storage;
 		VectorView<RDD::AttachmentLoadOp> load_ops_view(load_ops, p_draw_list_command->trackers_count);
 		VectorView<RDD::AttachmentStoreOp> store_ops_view(store_ops, p_draw_list_command->trackers_count);
-		storage.render_pass = render_pass_creation_function(driver, load_ops_view, store_ops_view, framebuffer_cache->render_pass_creation_user_data);
+		VectorView<RDD::AttachmentLoadOp> stencil_load_ops_view(stencil_load_ops, p_draw_list_command->trackers_count);
+		VectorView<RDD::AttachmentStoreOp> stencil_store_ops_view(stencil_store_ops, p_draw_list_command->trackers_count);
+		storage.render_pass = render_pass_creation_function(driver, load_ops_view, store_ops_view, stencil_load_ops_view, stencil_store_ops_view, framebuffer_cache->render_pass_creation_user_data);
 		ERR_FAIL_COND(!storage.render_pass);
 
 		storage.framebuffer = driver->framebuffer_create(storage.render_pass, framebuffer_cache->textures, framebuffer_cache->width, framebuffer_cache->height);
@@ -2005,7 +2011,7 @@ void RenderingDeviceGraph::add_draw_list_end() {
 	int32_t command_index;
 	uint32_t clear_values_size = sizeof(RDD::RenderPassClearValue) * draw_instruction_list.attachment_clear_values.size();
 	uint32_t trackers_count = framebuffer_cache != nullptr ? framebuffer_cache->trackers.size() : 0;
-	uint32_t trackers_and_ops_size = (sizeof(ResourceTracker *) + sizeof(RDD::AttachmentLoadOp) + sizeof(RDD::AttachmentStoreOp)) * trackers_count;
+	uint32_t trackers_and_ops_size = (sizeof(ResourceTracker *) + sizeof(RDD::AttachmentLoadOp) * 2 + sizeof(RDD::AttachmentStoreOp) * 2) * trackers_count;
 	uint32_t instruction_data_size = draw_instruction_list.data.size();
 	uint32_t command_size = sizeof(RecordedDrawListCommand) + clear_values_size + trackers_and_ops_size + instruction_data_size;
 	RecordedDrawListCommand *command = static_cast<RecordedDrawListCommand *>(_allocate_command(command_size, command_index));
@@ -2029,27 +2035,39 @@ void RenderingDeviceGraph::add_draw_list_end() {
 	ResourceTracker **trackers = command->trackers();
 	RDD::AttachmentLoadOp *load_ops = command->load_ops();
 	RDD::AttachmentStoreOp *store_ops = command->store_ops();
+	RDD::AttachmentLoadOp *stencil_load_ops = command->stencil_load_ops();
+	RDD::AttachmentStoreOp *stencil_store_ops = command->stencil_store_ops();
 	for (uint32_t i = 0; i < command->trackers_count; i++) {
 		ResourceTracker *resource_tracker = framebuffer_cache->trackers[i];
 		if (resource_tracker != nullptr) {
 			if (i < command->clear_values_count && i < attachment_op_count && draw_instruction_list.attachment_operations[i] == ATTACHMENT_OPERATION_CLEAR) {
 				load_ops[i] = RDD::ATTACHMENT_LOAD_OP_CLEAR;
+				stencil_load_ops[i] = RDD::ATTACHMENT_LOAD_OP_CLEAR;
+			} else if (i < command->clear_values_count && i < attachment_op_count && draw_instruction_list.attachment_operations[i] == ATTACHMENT_OPERATION_DEFAULT_AND_CLEAR_STENCIL) {
+				load_ops[i] = RDD::ATTACHMENT_LOAD_OP_LOAD;
+				stencil_load_ops[i] = RDD::ATTACHMENT_LOAD_OP_CLEAR;
 			} else if (i < attachment_op_count && draw_instruction_list.attachment_operations[i] == ATTACHMENT_OPERATION_IGNORE) {
 				load_ops[i] = RDD::ATTACHMENT_LOAD_OP_DONT_CARE;
+				stencil_load_ops[i] = RDD::ATTACHMENT_LOAD_OP_DONT_CARE;
 			} else if (resource_tracker->is_discardable) {
 				bool resource_has_parent = resource_tracker->parent != nullptr;
 				ResourceTracker *search_tracker = resource_has_parent ? resource_tracker->parent : resource_tracker;
 				search_tracker->reset_if_outdated(tracking_frame);
 				bool resource_was_modified_this_frame = search_tracker->write_command_or_list_index >= 0;
 				load_ops[i] = resource_was_modified_this_frame ? RDD::ATTACHMENT_LOAD_OP_LOAD : RDD::ATTACHMENT_LOAD_OP_DONT_CARE;
+				stencil_load_ops[i] = resource_was_modified_this_frame ? RDD::ATTACHMENT_LOAD_OP_LOAD : RDD::ATTACHMENT_LOAD_OP_DONT_CARE;
 			} else {
 				load_ops[i] = RDD::ATTACHMENT_LOAD_OP_LOAD;
+				stencil_load_ops[i] = RDD::ATTACHMENT_LOAD_OP_LOAD;
 			}
 
 			store_ops[i] = resource_tracker->is_discardable ? RDD::ATTACHMENT_STORE_OP_DONT_CARE : RDD::ATTACHMENT_STORE_OP_STORE;
+			stencil_store_ops[i] = resource_tracker->is_discardable ? RDD::ATTACHMENT_STORE_OP_DONT_CARE : RDD::ATTACHMENT_STORE_OP_STORE;
 		} else {
 			load_ops[i] = RDD::ATTACHMENT_LOAD_OP_DONT_CARE;
 			store_ops[i] = RDD::ATTACHMENT_STORE_OP_DONT_CARE;
+			stencil_load_ops[i] = RDD::ATTACHMENT_LOAD_OP_DONT_CARE;
+			stencil_store_ops[i] = RDD::ATTACHMENT_STORE_OP_DONT_CARE;
 		}
 
 		trackers[i] = resource_tracker;

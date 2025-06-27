@@ -197,7 +197,7 @@ public:
 		}
 	};
 
-	typedef RDD::RenderPassID (*RenderPassCreationFunction)(RenderingDeviceDriver *p_driver, VectorView<RDD::AttachmentLoadOp> p_load_ops, VectorView<RDD::AttachmentStoreOp> p_store_ops, void *p_user_data);
+	typedef RDD::RenderPassID (*RenderPassCreationFunction)(RenderingDeviceDriver *p_driver, VectorView<RDD::AttachmentLoadOp> p_load_ops, VectorView<RDD::AttachmentStoreOp> p_store_ops, VectorView<RDD::AttachmentLoadOp> p_stencil_load_ops, VectorView<RDD::AttachmentStoreOp> p_stencil_store_ops, void *p_user_data);
 
 	struct FramebufferStorage {
 		RDD::FramebufferID framebuffer;
@@ -234,6 +234,8 @@ public:
 		ATTACHMENT_OPERATION_CLEAR,
 		// Ignore any contents from the attachment.
 		ATTACHMENT_OPERATION_IGNORE,
+		// Behaves like ATTACHMENT_OPERATION_DEFAULT, but also clears the stencil to a value.
+		ATTACHMENT_OPERATION_DEFAULT_AND_CLEAR_STENCIL,
 	};
 
 private:
@@ -404,12 +406,28 @@ private:
 			return reinterpret_cast<const RDD::AttachmentStoreOp *>(&load_ops()[trackers_count]);
 		}
 
+		_FORCE_INLINE_ RDD::AttachmentLoadOp *stencil_load_ops() {
+			return reinterpret_cast<RDD::AttachmentLoadOp *>(&store_ops()[trackers_count]);
+		}
+
+		_FORCE_INLINE_ const RDD::AttachmentLoadOp *stencil_load_ops() const {
+			return reinterpret_cast<const RDD::AttachmentLoadOp *>(&store_ops()[trackers_count]);
+		}
+
+		_FORCE_INLINE_ RDD::AttachmentStoreOp *stencil_store_ops() {
+			return reinterpret_cast<RDD::AttachmentStoreOp *>(&stencil_load_ops()[trackers_count]);
+		}
+
+		_FORCE_INLINE_ const RDD::AttachmentStoreOp *stencil_store_ops() const {
+			return reinterpret_cast<const RDD::AttachmentStoreOp *>(&stencil_load_ops()[trackers_count]);
+		}
+
 		_FORCE_INLINE_ uint8_t *instruction_data() {
-			return reinterpret_cast<uint8_t *>(&store_ops()[trackers_count]);
+			return reinterpret_cast<uint8_t *>(&stencil_store_ops()[trackers_count]);
 		}
 
 		_FORCE_INLINE_ const uint8_t *instruction_data() const {
-			return reinterpret_cast<const uint8_t *>(&store_ops()[trackers_count]);
+			return reinterpret_cast<const uint8_t *>(&stencil_store_ops()[trackers_count]);
 		}
 	};
 

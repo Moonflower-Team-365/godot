@@ -2442,7 +2442,7 @@ bool RenderingDevice::texture_is_format_supported_for_usage(DataFormat p_format,
 /**** FRAMEBUFFER ****/
 /*********************/
 
-RDD::RenderPassID RenderingDevice::_render_pass_create(RenderingDeviceDriver *p_driver, const Vector<AttachmentFormat> &p_attachments, const Vector<FramebufferPass> &p_passes, VectorView<RDD::AttachmentLoadOp> p_load_ops, VectorView<RDD::AttachmentStoreOp> p_store_ops, uint32_t p_view_count, VRSMethod p_vrs_method, int32_t p_vrs_attachment, Size2i p_vrs_texel_size, Vector<TextureSamples> *r_samples) {
+RDD::RenderPassID RenderingDevice::_render_pass_create(RenderingDeviceDriver *p_driver, const Vector<AttachmentFormat> &p_attachments, const Vector<FramebufferPass> &p_passes, VectorView<RDD::AttachmentLoadOp> p_load_ops, VectorView<RDD::AttachmentStoreOp> p_store_ops, VectorView<RDD::AttachmentLoadOp> p_stencil_load_ops, VectorView<RDD::AttachmentStoreOp> p_stencil_store_ops, uint32_t p_view_count, VRSMethod p_vrs_method, int32_t p_vrs_attachment, Size2i p_vrs_texel_size, Vector<TextureSamples> *r_samples) {
 	// NOTE:
 	// Before the refactor to RenderingDevice-RenderingDeviceDriver, there was commented out code to
 	// specify dependencies to external subpasses. Since it had been unused for a long timel it wasn't ported
@@ -2501,8 +2501,8 @@ RDD::RenderPassID RenderingDevice::_render_pass_create(RenderingDeviceDriver *p_
 			} else if (p_attachments[i].usage_flags & TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) {
 				description.load_op = p_load_ops[i];
 				description.store_op = p_store_ops[i];
-				description.stencil_load_op = p_load_ops[i];
-				description.stencil_store_op = p_store_ops[i];
+				description.stencil_load_op = p_stencil_load_ops[i];
+				description.stencil_store_op = p_stencil_store_ops[i];
 				description.initial_layout = RDD::TEXTURE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 				description.final_layout = RDD::TEXTURE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 			} else {
@@ -2677,7 +2677,7 @@ RDD::RenderPassID RenderingDevice::_render_pass_create(RenderingDeviceDriver *p_
 	return render_pass;
 }
 
-RDD::RenderPassID RenderingDevice::_render_pass_create_from_graph(RenderingDeviceDriver *p_driver, VectorView<RDD::AttachmentLoadOp> p_load_ops, VectorView<RDD::AttachmentStoreOp> p_store_ops, void *p_user_data) {
+RDD::RenderPassID RenderingDevice::_render_pass_create_from_graph(RenderingDeviceDriver *p_driver, VectorView<RDD::AttachmentLoadOp> p_load_ops, VectorView<RDD::AttachmentStoreOp> p_store_ops, VectorView<RDD::AttachmentLoadOp> p_stencil_load_ops, VectorView<RDD::AttachmentStoreOp> p_stencil_store_ops, void *p_user_data) {
 	DEV_ASSERT(p_driver != nullptr);
 	DEV_ASSERT(p_user_data != nullptr);
 
@@ -2685,7 +2685,7 @@ RDD::RenderPassID RenderingDevice::_render_pass_create_from_graph(RenderingDevic
 	// resolving the dependencies between commands. This function creates a render pass for the framebuffer accordingly.
 	Framebuffer *framebuffer = (Framebuffer *)(p_user_data);
 	const FramebufferFormatKey &key = framebuffer->rendering_device->framebuffer_formats[framebuffer->format_id].E->key();
-	return _render_pass_create(p_driver, key.attachments, key.passes, p_load_ops, p_store_ops, framebuffer->view_count, key.vrs_method, key.vrs_attachment, key.vrs_texel_size);
+	return _render_pass_create(p_driver, key.attachments, key.passes, p_load_ops, p_store_ops, p_stencil_load_ops, p_stencil_store_ops, framebuffer->view_count, key.vrs_method, key.vrs_attachment, key.vrs_texel_size);
 }
 
 RDG::ResourceUsage RenderingDevice::_vrs_usage_from_method(VRSMethod p_method) {
@@ -2796,7 +2796,7 @@ RenderingDevice::FramebufferFormatID RenderingDevice::framebuffer_format_create_
 		store_ops.push_back(RDD::ATTACHMENT_STORE_OP_STORE);
 	}
 
-	RDD::RenderPassID render_pass = _render_pass_create(driver, p_attachments, p_passes, load_ops, store_ops, p_view_count, vrs_method, p_vrs_attachment, vrs_texel_size, &samples); // Actions don't matter for this use case.
+	RDD::RenderPassID render_pass = _render_pass_create(driver, p_attachments, p_passes, load_ops, store_ops, load_ops, store_ops, p_view_count, vrs_method, p_vrs_attachment, vrs_texel_size, &samples); // Actions don't matter for this use case.
 	if (!render_pass) { // Was likely invalid.
 		return INVALID_ID;
 	}
@@ -4453,7 +4453,11 @@ RenderingDevice::DrawListID RenderingDevice::draw_list_begin(RID p_framebuffer, 
 			color_index++;
 		} else if (texture->usage_flags & TEXTURE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) {
 			if (p_draw_flags.has_flag(DRAW_CLEAR_DEPTH) || p_draw_flags.has_flag(DRAW_CLEAR_STENCIL)) {
-				operation = RDG::ATTACHMENT_OPERATION_CLEAR;
+				if (!p_draw_flags.has_flag(DRAW_CLEAR_DEPTH) && !p_draw_flags.has_flag(DRAW_IGNORE_DEPTH)) {
+					operation = RDG::ATTACHMENT_OPERATION_DEFAULT_AND_CLEAR_STENCIL;
+				} else {
+					operation = RDG::ATTACHMENT_OPERATION_CLEAR;
+				}
 				clear_value.depth = p_clear_depth_value;
 				clear_value.stencil = p_clear_stencil_value;
 			} else if (p_draw_flags.has_flag(DRAW_IGNORE_DEPTH) || p_draw_flags.has_flag(DRAW_IGNORE_STENCIL)) {

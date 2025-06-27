@@ -2092,6 +2092,12 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 			}
 			RD::get_singleton()->draw_command_end_label();
 		}
+
+		// Reset stencil.
+		if (scene_state.used_opaque_stencil) {
+			RD::get_singleton()->draw_list_begin(depth_framebuffer, RD::DRAW_CLEAR_STENCIL, depth_pass_clear, 0.0f);
+			RD::get_singleton()->draw_list_end();
+		}
 	}
 
 	{
