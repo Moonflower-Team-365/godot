@@ -76,7 +76,7 @@ void SceneReplicationInterface::_untrack(const ObjectID &p_id) {
 	NetID net_id = tracked_nodes[p_id].net_id;
 	_set_tracked_spawner(tracked_nodes[p_id], ObjectID());
 	tracked_nodes.erase(p_id);
-	if (net_id != NetID()) {
+	if (net_id != NetID() && known_nodes.has(net_id)) {
 		known_nodes.erase(net_id);
 	}
 	spawned_nodes.erase(p_id);
@@ -216,28 +216,32 @@ Error SceneReplicationInterface::on_despawn(Object *p_obj, Variant p_config) {
 	ERR_FAIL_COND_V(!node || p_config.get_type() != Variant::OBJECT, ERR_INVALID_PARAMETER);
 	MultiplayerSpawner *spawner = Object::cast_to<MultiplayerSpawner>(p_config.get_validated_object());
 	ERR_FAIL_COND_V(!p_obj || !spawner, ERR_INVALID_PARAMETER);
-	// Forcibly despawn to all peers that knowns me.
-	int len = 0;
-	Error err = _make_despawn_packet(node, len);
-	ERR_FAIL_COND_V(err != OK, ERR_BUG);
 	const ObjectID oid = p_obj->get_instance_id();
-	for (const KeyValue<int, PeerInfo> &E : peers_info) {
-		if (!E.value.spawn_nodes.has(oid)) {
-			continue;
-		}
-		_send_raw(packet_cache.ptr(), len, E.key, true);
-	}
-	// Also remove spawner tracking from the replication state.
 	ERR_FAIL_COND_V(!tracked_nodes.has(oid), ERR_INVALID_PARAMETER);
 	TrackedNode &tobj = tracked_nodes[oid];
+	// Forcibly despawn to all peers that knowns me.
+	if (tobj.net_id != NetID()) {
+		int len = 0;
+		Error err = _make_despawn_packet(node, len);
+		ERR_FAIL_COND_V(err != OK, ERR_BUG);
+		for (const KeyValue<int, PeerInfo> &E : peers_info) {
+			if (!E.value.spawn_nodes.has(oid)) {
+				continue;
+			}
+			_send_raw(packet_cache.ptr(), len, E.key, true);
+		}
+	}
+	// Also remove spawner tracking from the replication state.
 	ERR_FAIL_COND_V(tobj.spawner != spawner->get_instance_id(), ERR_INVALID_PARAMETER);
 	_set_tracked_spawner(tobj, ObjectID());
 	spawned_nodes.erase(oid);
 	for (KeyValue<int, PeerInfo> &E : peers_info) {
 		E.value.spawn_nodes.erase(oid);
 	}
-	ERR_FAIL_COND_V(!known_nodes.has(tobj.net_id), ERR_BUG);
-	known_nodes.erase(tobj.net_id);
+	if (tobj.net_id != NetID()) {
+		ERR_FAIL_COND_V(!known_nodes.has(tobj.net_id), ERR_BUG);
+		known_nodes.erase(tobj.net_id);
+	}
 	return OK;
 }
 
@@ -720,7 +724,13 @@ Error SceneReplicationInterface::on_despawn_receive(int p_from, const uint8_t *p
 	ERR_FAIL_COND_V(!peers_info.has(p_from), ERR_UNAUTHORIZED);
 	PeerInfo &pinfo = peers_info[p_from];
 	NetID nid = NetID(remote_peer, net_id);
-	ERR_FAIL_COND_V(!pinfo.recv_nodes.has(nid), ERR_UNAUTHORIZED);
+	if (!pinfo.recv_nodes.has(nid)) {
+		if (!known_nodes.has(nid)) {
+			WARN_PRINT(vformat("Received despawn for a node that is untracked: from peer %d, original peer %d, net id %d.", p_from, remote_peer, net_id));
+			return OK;
+		}
+		ERR_FAIL_V(ERR_UNAUTHORIZED);
+	}
 	Node *node = get_id_as<Node>(pinfo.recv_nodes[nid]);
 	ERR_FAIL_NULL_V(node, ERR_BUG);
 	pinfo.recv_nodes.erase(nid);
@@ -1021,12 +1031,7 @@ void SceneReplicationInterface::_spawner_authority_changed(int prev_authority, c
 	} else if (spawner->get_multiplayer_authority() == multiplayer->get_unique_id()) {
 		_spawner_authority_adopt(prev_authority, p_oid);
 	} else {
-		ERR_FAIL_COND(!peers_info.has(prev_authority));
-		ERR_FAIL_COND(!peers_info.has(spawner->get_multiplayer_authority()));
-		for (const KeyValue<NetID, ObjectID> &E : peers_info[prev_authority].recv_nodes) {
-			peers_info[spawner->get_multiplayer_authority()].recv_nodes[E.key] = E.value;
-		}
-		peers_info[prev_authority].recv_nodes.clear();
+		_spawner_authority_move(prev_authority, p_oid);
 	}
 }
 
@@ -1106,6 +1111,28 @@ void SceneReplicationInterface::_spawner_authority_adopt(int prev_authority, con
 			if (is_visible_to_peer) {
 				P.value.spawn_nodes.insert(node_oid);
 			}
+		}
+	}
+}
+
+void SceneReplicationInterface::_spawner_authority_move(int prev_authority, const ObjectID &p_oid) {
+	MultiplayerSpawner *spawner = get_id_as<MultiplayerSpawner>(p_oid);
+	ERR_FAIL_NULL(spawner);
+
+	ERR_FAIL_COND(!peers_info.has(prev_authority));
+	ERR_FAIL_COND(!peers_info.has(spawner->get_multiplayer_authority()));
+	ERR_FAIL_COND(!tracked_spawners.has(p_oid));
+
+	int new_authority = spawner->get_multiplayer_authority();
+	for (const ObjectID &node_oid : tracked_spawners[p_oid].tracked_nodes) {
+		TrackedNode &tnode = tracked_nodes[node_oid];
+		ERR_CONTINUE(tnode.spawner != p_oid);
+		if (tnode.net_id == NetID()) {
+			continue;
+		}
+		if (peers_info[prev_authority].recv_nodes.has(tnode.net_id)) {
+			peers_info[new_authority].recv_nodes[tnode.net_id] = peers_info[prev_authority].recv_nodes[tnode.net_id];
+			peers_info[prev_authority].recv_nodes.erase(tnode.net_id);
 		}
 	}
 }

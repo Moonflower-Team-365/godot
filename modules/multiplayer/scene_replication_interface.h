@@ -147,6 +147,7 @@ private:
 	void _spawner_authority_changed(int prev_authority, const ObjectID &p_oid);
 	void _spawner_authority_release(const ObjectID &p_oid);
 	void _spawner_authority_adopt(int prev_authority, const ObjectID &p_oid);
+	void _spawner_authority_move(int prev_authority, const ObjectID &p_oid);
 
 	void _set_net_id(const ObjectID &p_oid, const NetID &net_id);
 
