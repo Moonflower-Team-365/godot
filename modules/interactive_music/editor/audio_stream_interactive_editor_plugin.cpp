@@ -70,6 +70,7 @@ void AudioStreamInteractiveTransitionEditor::_edited() {
 	AudioStreamInteractive::TransitionFromTime from = AudioStreamInteractive::TransitionFromTime(transition_from->get_selected());
 	AudioStreamInteractive::TransitionToTime to = AudioStreamInteractive::TransitionToTime(transition_to->get_selected());
 	AudioStreamInteractive::FadeMode fade = AudioStreamInteractive::FadeMode(fade_mode->get_selected());
+	AudioStreamInteractive::TransitionTiming timing = AudioStreamInteractive::TransitionTiming(transition_timing->get_selected());
 	float beats = fade_beats->get_value();
 	bool use_filler = filler_clip->get_selected() > 0;
 	int filler = use_filler ? filler_clip->get_selected() - 1 : 0;
@@ -82,7 +83,7 @@ void AudioStreamInteractiveTransitionEditor::_edited() {
 				EditorUndoRedoManager::get_singleton()->add_do_method(audio_stream_interactive, "erase_transition", selected[i].x, selected[i].y);
 			}
 		} else {
-			EditorUndoRedoManager::get_singleton()->add_do_method(audio_stream_interactive, "add_transition", selected[i].x, selected[i].y, from, to, fade, beats, use_filler, filler, hold);
+			EditorUndoRedoManager::get_singleton()->add_do_method(audio_stream_interactive, "add_transition", selected[i].x, selected[i].y, from, to, fade, timing, beats, use_filler, filler, hold);
 		}
 	}
 	EditorUndoRedoManager::get_singleton()->add_undo_property(audio_stream_interactive, "_transitions", audio_stream_interactive->get("_transitions"));
@@ -116,6 +117,7 @@ void AudioStreamInteractiveTransitionEditor::_update_selection() {
 	transition_from->set_disabled(selected.is_empty());
 	transition_to->set_disabled(selected.is_empty());
 	fade_mode->set_disabled(selected.is_empty());
+	transition_timing->set_disabled(selected.is_empty());
 	fade_beats->set_editable(!selected.is_empty());
 	filler_clip->set_disabled(selected.is_empty());
 	hold_previous->set_disabled(selected.is_empty());
@@ -130,6 +132,7 @@ void AudioStreamInteractiveTransitionEditor::_update_selection() {
 		transition_from->select(0);
 		transition_to->select(0);
 		fade_mode->select(AudioStreamInteractive::FADE_AUTOMATIC);
+		transition_timing->select(AudioStreamInteractive::TRANSITION_TIMING_AFTER_FILLER);
 		fade_beats->set_value(1.0);
 		filler_clip->select(0);
 		hold_previous->set_pressed(false);
@@ -138,6 +141,7 @@ void AudioStreamInteractiveTransitionEditor::_update_selection() {
 		transition_from->select(audio_stream_interactive->get_transition_from_time(editing.x, editing.y));
 		transition_to->select(audio_stream_interactive->get_transition_to_time(editing.x, editing.y));
 		fade_mode->select(audio_stream_interactive->get_transition_fade_mode(editing.x, editing.y));
+		transition_timing->select(audio_stream_interactive->get_transition_timing(editing.x, editing.y));
 		fade_beats->set_value(audio_stream_interactive->get_transition_fade_beats(editing.x, editing.y));
 		if (audio_stream_interactive->is_transition_using_filler_clip(editing.x, editing.y)) {
 			filler_clip->select(audio_stream_interactive->get_transition_filler_clip(editing.x, editing.y) + 1);
@@ -375,6 +379,16 @@ AudioStreamInteractiveTransitionEditor::AudioStreamInteractiveTransitionEditor()
 	edit_vb->add_margin_child(TTR("Fade Mode:"), fade_mode);
 	fade_mode->connect(SceneStringName(item_selected), callable_mp(this, &AudioStreamInteractiveTransitionEditor::_edited).unbind(1));
 	fade_mode->set_accessibility_name(TTRC("Fade Mode:"));
+
+	transition_timing = memnew(OptionButton);
+	edit_vb->add_margin_child(TTR("Transition Timing:"), transition_timing);
+	transition_timing->connect(SceneStringName(item_selected), callable_mp(this, &AudioStreamInteractiveTransitionEditor::_edited).unbind(1));
+	transition_timing->set_accessibility_name(TTRC("Fade Mode:"));
+	transition_timing->add_item("After Filler");
+	transition_timing->add_item("Ignore Filler");
+	transition_timing->add_item("After Fade Out");
+	transition_timing->add_item("After Fade Out OR Filler");
+	transition_timing->add_item("After Fade Out AND Filler");
 
 	fade_beats = memnew(SpinBox);
 	edit_vb->add_margin_child(TTR("Fade Beats:"), fade_beats);

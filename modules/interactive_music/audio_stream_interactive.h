@@ -62,6 +62,14 @@ public:
 		FADE_MAX
 	};
 
+	enum TransitionTiming {
+		TRANSITION_TIMING_AFTER_FILLER,
+		TRANSITION_TIMING_IGNORE_FILLER,
+		TRANSITION_TIMING_AFTER_FADE_OUT,
+		TRANSITION_TIMING_AFTER_FADE_OUT_OR_FILLER,
+		TRANSITION_TIMING_AFTER_FADE_OUT_AND_FILLER,
+	};
+
 	enum AutoAdvanceMode {
 		AUTO_ADVANCE_DISABLED,
 		AUTO_ADVANCE_ENABLED,
@@ -99,6 +107,7 @@ private:
 		TransitionFromTime from_time = TRANSITION_FROM_TIME_NEXT_BEAT;
 		TransitionToTime to_time = TRANSITION_TO_TIME_START;
 		FadeMode fade_mode = FADE_AUTOMATIC;
+		TransitionTiming transition_timing = TRANSITION_TIMING_AFTER_FADE_OUT;
 		float fade_beats = 1;
 		bool use_filler_clip = false;
 		int filler_clip = 0;
@@ -165,10 +174,11 @@ public:
 
 	// TRANSITIONS
 
-	void add_transition(int p_from_clip, int p_to_clip, TransitionFromTime p_from_time, TransitionToTime p_to_time, FadeMode p_fade_mode, float p_fade_beats, bool p_use_filler_flip = false, int p_filler_clip = -1, bool p_hold_previous = false);
+	void add_transition(int p_from_clip, int p_to_clip, TransitionFromTime p_from_time, TransitionToTime p_to_time, FadeMode p_fade_mode, TransitionTiming p_transition_timing, float p_fade_beats, bool p_use_filler_flip = false, int p_filler_clip = -1, bool p_hold_previous = false);
 	TransitionFromTime get_transition_from_time(int p_from_clip, int p_to_clip) const;
 	TransitionToTime get_transition_to_time(int p_from_clip, int p_to_clip) const;
 	FadeMode get_transition_fade_mode(int p_from_clip, int p_to_clip) const;
+	TransitionTiming get_transition_timing(int p_from_clip, int p_to_clip) const;
 	float get_transition_fade_beats(int p_from_clip, int p_to_clip) const;
 	bool is_transition_using_filler_clip(int p_from_clip, int p_to_clip) const;
 	int get_transition_filler_clip(int p_from_clip, int p_to_clip) const;
@@ -197,6 +207,7 @@ VARIANT_ENUM_CAST(AudioStreamInteractive::TransitionFromTime)
 VARIANT_ENUM_CAST(AudioStreamInteractive::TransitionToTime)
 VARIANT_ENUM_CAST(AudioStreamInteractive::AutoAdvanceMode)
 VARIANT_ENUM_CAST(AudioStreamInteractive::FadeMode)
+VARIANT_ENUM_CAST(AudioStreamInteractive::TransitionTiming)
 
 class AudioStreamPlaybackInteractive : public AudioStreamPlayback {
 	GDCLASS(AudioStreamPlaybackInteractive, AudioStreamPlayback)

@@ -190,7 +190,7 @@ void AudioStreamInteractive::_set_transitions(const Dictionary &p_transitions) {
 		}
 		bool hold_previous = data.has("hold_previous") ? bool(data["hold_previous"]) : false;
 
-		add_transition(k.x, k.y, TransitionFromTime(int(data["from_time"])), TransitionToTime(int(data["to_time"])), FadeMode(int(data["fade_mode"])), data["fade_beats"], use_filler_clip, filler_clip, hold_previous);
+		add_transition(k.x, k.y, TransitionFromTime(int(data["from_time"])), TransitionToTime(int(data["to_time"])), FadeMode(int(data["fade_mode"])), TransitionTiming(int(data["transition_timing"])), data["fade_beats"], use_filler_clip, filler_clip, hold_previous);
 	}
 }
 
@@ -208,6 +208,7 @@ Dictionary AudioStreamInteractive::_get_transitions() const {
 		data["from_time"] = tr.from_time;
 		data["to_time"] = tr.to_time;
 		data["fade_mode"] = tr.fade_mode;
+		data["transition_timing"] = tr.transition_timing;
 		data["fade_beats"] = tr.fade_beats;
 		if (tr.use_filler_clip) {
 			data["use_filler_clip"] = true;
@@ -245,7 +246,7 @@ PackedInt32Array AudioStreamInteractive::get_transition_list() const {
 	return ret;
 }
 
-void AudioStreamInteractive::add_transition(int p_from_clip, int p_to_clip, TransitionFromTime p_from_time, TransitionToTime p_to_time, FadeMode p_fade_mode, float p_fade_beats, bool p_use_filler_flip, int p_filler_clip, bool p_hold_previous) {
+void AudioStreamInteractive::add_transition(int p_from_clip, int p_to_clip, TransitionFromTime p_from_time, TransitionToTime p_to_time, FadeMode p_fade_mode, TransitionTiming p_transition_timing, float p_fade_beats, bool p_use_filler_flip, int p_filler_clip, bool p_hold_previous) {
 	ERR_FAIL_COND(p_from_clip < CLIP_ANY || p_from_clip >= clip_count);
 	ERR_FAIL_COND(p_to_clip < CLIP_ANY || p_to_clip >= clip_count);
 	ERR_FAIL_UNSIGNED_INDEX(p_from_time, TRANSITION_FROM_TIME_MAX);
@@ -256,6 +257,7 @@ void AudioStreamInteractive::add_transition(int p_from_clip, int p_to_clip, Tran
 	tr.from_time = p_from_time;
 	tr.to_time = p_to_time;
 	tr.fade_mode = p_fade_mode;
+	tr.transition_timing = p_transition_timing;
 	tr.fade_beats = p_fade_beats;
 	tr.use_filler_clip = p_use_filler_flip;
 	tr.filler_clip = p_filler_clip;
@@ -284,6 +286,12 @@ AudioStreamInteractive::FadeMode AudioStreamInteractive::get_transition_fade_mod
 	TransitionKey tk(p_from_clip, p_to_clip);
 	ERR_FAIL_COND_V(!transition_map.has(tk), FADE_DISABLED);
 	return transition_map[tk].fade_mode;
+}
+
+AudioStreamInteractive::TransitionTiming AudioStreamInteractive::get_transition_timing(int p_from_clip, int p_to_clip) const {
+	TransitionKey tk(p_from_clip, p_to_clip);
+	ERR_FAIL_COND_V(!transition_map.has(tk), TRANSITION_TIMING_AFTER_FILLER);
+	return transition_map[tk].transition_timing;
 }
 
 float AudioStreamInteractive::get_transition_fade_beats(int p_from_clip, int p_to_clip) const {
@@ -505,6 +513,7 @@ void AudioStreamInteractive::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_transition_from_time", "from_clip", "to_clip"), &AudioStreamInteractive::get_transition_from_time);
 	ClassDB::bind_method(D_METHOD("get_transition_to_time", "from_clip", "to_clip"), &AudioStreamInteractive::get_transition_to_time);
 	ClassDB::bind_method(D_METHOD("get_transition_fade_mode", "from_clip", "to_clip"), &AudioStreamInteractive::get_transition_fade_mode);
+	ClassDB::bind_method(D_METHOD("get_transition_timing", "from_clip", "to_clip"), &AudioStreamInteractive::get_transition_timing);
 	ClassDB::bind_method(D_METHOD("get_transition_fade_beats", "from_clip", "to_clip"), &AudioStreamInteractive::get_transition_fade_beats);
 	ClassDB::bind_method(D_METHOD("is_transition_using_filler_clip", "from_clip", "to_clip"), &AudioStreamInteractive::is_transition_using_filler_clip);
 	ClassDB::bind_method(D_METHOD("get_transition_filler_clip", "from_clip", "to_clip"), &AudioStreamInteractive::get_transition_filler_clip);
@@ -825,18 +834,44 @@ void AudioStreamPlaybackInteractive::_queue(int p_to_clip_index, bool p_is_auto_
 
 		if (transition.fade_mode == AudioStreamInteractive::FADE_DISABLED || transition.fade_mode == AudioStreamInteractive::FADE_OUT) {
 			// No fading, immediately start at full volume.
-			to_state.fade_volume = 0.0;
-			to_state.fade_speed = 1.0; //start at full volume, as filler is meant as a transition.
+			to_state.fade_volume = 1.0; //start at full volume, as filler is meant as a transition.
+			to_state.fade_speed = 0.0;
 		} else {
 			// Fade enable, prepare fade.
 			to_state.fade_volume = 0.0;
 			to_state.fade_speed = fade_speed;
 		}
 
-		to_state.fade_wait = src_fade_wait + filler_end;
+		switch (transition.transition_timing) {
+			case AudioStreamInteractive::TRANSITION_TIMING_AFTER_FILLER:
+				to_state.fade_wait = src_fade_wait + filler_end;
+				break;
+			case AudioStreamInteractive::TRANSITION_TIMING_IGNORE_FILLER:
+				to_state.fade_wait = src_fade_wait;
+				break;
+			case AudioStreamInteractive::TRANSITION_TIMING_AFTER_FADE_OUT:
+				to_state.fade_wait = src_fade_wait + 1.0 / fade_speed;
+				break;
+			case AudioStreamInteractive::TRANSITION_TIMING_AFTER_FADE_OUT_OR_FILLER:
+				to_state.fade_wait = src_fade_wait + MIN(1.0 / fade_speed, filler_end);
+				break;
+			case AudioStreamInteractive::TRANSITION_TIMING_AFTER_FADE_OUT_AND_FILLER:
+				to_state.fade_wait = src_fade_wait + MAX(1.0 / fade_speed, filler_end);
+				break;
+		}
 
 	} else {
-		to_state.fade_wait = src_fade_wait;
+		switch (transition.transition_timing) {
+			case AudioStreamInteractive::TRANSITION_TIMING_AFTER_FILLER:
+			case AudioStreamInteractive::TRANSITION_TIMING_IGNORE_FILLER:
+				to_state.fade_wait = src_fade_wait;
+				break;
+			case AudioStreamInteractive::TRANSITION_TIMING_AFTER_FADE_OUT:
+			case AudioStreamInteractive::TRANSITION_TIMING_AFTER_FADE_OUT_OR_FILLER:
+			case AudioStreamInteractive::TRANSITION_TIMING_AFTER_FADE_OUT_AND_FILLER:
+				to_state.fade_wait = src_fade_wait + 1.0 / fade_speed;
+				break;
+		}
 
 		if (transition.fade_mode == AudioStreamInteractive::FADE_DISABLED || transition.fade_mode == AudioStreamInteractive::FADE_OUT) {
 			to_state.fade_volume = 1.0;

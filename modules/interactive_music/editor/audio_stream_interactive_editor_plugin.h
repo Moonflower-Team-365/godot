@@ -55,6 +55,7 @@ class AudioStreamInteractiveTransitionEditor : public AcceptDialog {
 	OptionButton *transition_from = nullptr;
 	OptionButton *transition_to = nullptr;
 	OptionButton *fade_mode = nullptr;
+	OptionButton *transition_timing = nullptr;
 	SpinBox *fade_beats = nullptr;
 	OptionButton *filler_clip = nullptr;
 	CheckBox *hold_previous = nullptr;
