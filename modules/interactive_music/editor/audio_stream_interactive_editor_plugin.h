@@ -30,16 +30,59 @@
 
 #pragma once
 
+#include "../audio_stream_interactive.h"
+
+#include "editor/gui/editor_spin_slider.h"
 #include "editor/inspector/editor_inspector.h"
 #include "editor/plugins/editor_plugin.h"
 #include "scene/gui/dialogs.h"
 
+class AudioStreamPlayer;
+class Button;
 class CheckBox;
 class HSplitContainer;
 class VSplitContainer;
 class Tree;
 class TreeItem;
-class AudioStreamInteractive;
+
+class AudioStreamInteractiveTransitionChart : public Control {
+	GDCLASS(AudioStreamInteractiveTransitionChart, Control);
+
+private:
+	Ref<AudioStreamInteractive> stream;
+	int from_clip;
+	int to_clip;
+
+	double cue_t = 0.0;
+	double playhead_t = -1.0;
+
+	struct {
+		Ref<Font> font;
+		int font_size;
+		Color font_color;
+		Color background_color;
+		Color from_curve_color;
+		Color to_curve_color;
+		Color filler_bar_color;
+		Color playhead_color;
+	} theme_cache;
+
+	void _on_stream_changed();
+
+	float _get_from_volume(const AudioStreamInteractive::TransitionMixResult &mix, double p_t) const;
+	float _get_to_volume(const AudioStreamInteractive::TransitionMixResult &mix, double p_t) const;
+
+protected:
+	void _notification(int p_what);
+
+public:
+	void set_transition(Ref<AudioStreamInteractive> p_stream, int p_from_clip, int p_to_clip);
+	void clear_transition();
+
+	void set_preview_state(double p_cue_t, double p_playhead_t);
+
+	AudioStreamInteractiveTransitionChart();
+};
 
 class AudioStreamInteractiveTransitionEditor : public AcceptDialog {
 	GDCLASS(AudioStreamInteractiveTransitionEditor, AcceptDialog);
@@ -57,20 +100,41 @@ class AudioStreamInteractiveTransitionEditor : public AcceptDialog {
 	OptionButton *fade_mode = nullptr;
 	OptionButton *transition_timing = nullptr;
 	SpinBox *fade_beats = nullptr;
+	SpinBox *fade_offset_beats = nullptr;
+	EditorSpinSlider *fade_ease_exp = nullptr;
+	SpinBox *to_fade_beats = nullptr;
+	SpinBox *to_fade_offset_beats = nullptr;
+	EditorSpinSlider *to_fade_ease_exp = nullptr;
 	OptionButton *filler_clip = nullptr;
+	SpinBox *filler_clip_offset_beats = nullptr;
 	CheckBox *hold_previous = nullptr;
+
+	AudioStreamPlayer *audio_stream_player = nullptr;
+	SpinBox *preview_start_position = nullptr;
+	SpinBox *preview_cue_delay = nullptr;
+	Button *preview_play = nullptr;
+	Button *preview_stop = nullptr;
+	AudioStreamInteractiveTransitionChart *chart = nullptr;
+
+	bool preview_cue_pending = false;
 
 	bool updating_selection = false;
 	int order_counter = 0;
 	HashMap<Vector2i, int> selection_order;
 
 	Vector<Vector2i> selected;
+	Vector2i editing_transition;
 	bool updating = false;
 	void _cell_selected(TreeItem *p_item, int p_column, bool p_selected);
 	void _update_transitions();
 
 	void _update_selection();
 	void _edited();
+	void _update_chart();
+
+	void _update_preview_controls();
+	void _preview_start();
+	void _preview_stop();
 
 protected:
 	void _notification(int p_what);

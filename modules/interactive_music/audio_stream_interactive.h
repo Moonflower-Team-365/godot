@@ -62,12 +62,11 @@ public:
 		FADE_MAX
 	};
 
-	enum TransitionTiming {
-		TRANSITION_TIMING_AFTER_FILLER,
-		TRANSITION_TIMING_IGNORE_FILLER,
-		TRANSITION_TIMING_AFTER_FADE_OUT,
-		TRANSITION_TIMING_AFTER_FADE_OUT_OR_FILLER,
-		TRANSITION_TIMING_AFTER_FADE_OUT_AND_FILLER,
+	enum TransitionToCueTiming {
+		TRANSITION_TO_CUE_TIMING_DEFAULT,
+		TRANSITION_TO_CUE_TIMING_AFTER_FILLER,
+		TRANSITION_TO_CUE_TIMING_AFTER_FADE_OUT,
+		TRANSITION_TO_CUE_TIMING_IMMEDIATE,
 	};
 
 	enum AutoAdvanceMode {
@@ -80,6 +79,23 @@ public:
 		CLIP_ANY = -1
 	};
 
+	struct TransitionMixResult {
+		double start_t = 0.0;
+		double from_beat_sec = 0.0;
+		double from_fade_start_t = 0.0;
+		double from_end_t = 0.0;
+		double from_fade_speed = 0.0;
+		double from_fade_ease_exp = 0.0;
+		double to_beat_sec = 0.0;
+		double to_start_t = 0.0;
+		double to_fade_end_t = 0.0;
+		double to_fade_speed = 0.0;
+		double to_fade_ease_exp = 0.0;
+		double filler_start_t = 0.0;
+		double filler_end_t = 0.0;
+		double filler_tail_end_t = 0.0;
+	};
+
 private:
 	friend class AudioStreamPlaybackInteractive;
 	int sample_rate = 44100;
@@ -90,7 +106,6 @@ private:
 
 	enum {
 		MAX_CLIPS = 63, // Because we use bitmasks for transition matching.
-		MAX_TRANSITIONS = 63,
 	};
 
 	struct Clip {
@@ -107,11 +122,17 @@ private:
 		TransitionFromTime from_time = TRANSITION_FROM_TIME_NEXT_BEAT;
 		TransitionToTime to_time = TRANSITION_TO_TIME_START;
 		FadeMode fade_mode = FADE_AUTOMATIC;
-		TransitionTiming transition_timing = TRANSITION_TIMING_AFTER_FADE_OUT;
 		float fade_beats = 1;
 		bool use_filler_clip = false;
 		int filler_clip = 0;
 		bool hold_previous = false;
+		TransitionToCueTiming to_cue_timing = TRANSITION_TO_CUE_TIMING_DEFAULT;
+		float fade_offset_beats = 0.0;
+		float fade_ease_exp = 0.0;
+		float to_fade_beats = 0.0; // If 0.0, use fade_beats.
+		float to_fade_offset_beats = 0.0;
+		float to_fade_ease_exp = 0.0;
+		float filler_clip_offset_beats = 0.0;
 	};
 
 	struct TransitionKey {
@@ -139,6 +160,8 @@ private:
 	int clip_count = 0;
 
 	HashSet<AudioStreamPlaybackInteractive *> playbacks;
+
+	static TransitionMixResult compute_mix(const Transition &transition, float current_pos, const Ref<AudioStream> &from_stream, const Ref<AudioStream> &to_stream, const Ref<AudioStream> &filler_stream, bool p_is_auto_advance);
 
 #ifdef TOOLS_ENABLED
 
@@ -174,20 +197,34 @@ public:
 
 	// TRANSITIONS
 
-	void add_transition(int p_from_clip, int p_to_clip, TransitionFromTime p_from_time, TransitionToTime p_to_time, FadeMode p_fade_mode, TransitionTiming p_transition_timing, float p_fade_beats, bool p_use_filler_flip = false, int p_filler_clip = -1, bool p_hold_previous = false);
+	void add_transition(
+			int p_from_clip, int p_to_clip, TransitionFromTime p_from_time, TransitionToTime p_to_time, FadeMode p_fade_mode, float p_fade_beats,
+			bool p_use_filler_flip = false, int p_filler_clip = -1, bool p_hold_previous = false,
+			TransitionToCueTiming p_to_cue_timing = TRANSITION_TO_CUE_TIMING_DEFAULT,
+			float p_fade_offset_beats = 0.0, float p_fade_ease_exp = 0.0,
+			float p_to_fade_beats = 0.0, float p_to_fade_offset_beats = 0.0, float p_to_fade_ease_exp = 0.0,
+			float p_filler_clip_offset_beats = 0.0);
 	TransitionFromTime get_transition_from_time(int p_from_clip, int p_to_clip) const;
 	TransitionToTime get_transition_to_time(int p_from_clip, int p_to_clip) const;
 	FadeMode get_transition_fade_mode(int p_from_clip, int p_to_clip) const;
-	TransitionTiming get_transition_timing(int p_from_clip, int p_to_clip) const;
 	float get_transition_fade_beats(int p_from_clip, int p_to_clip) const;
 	bool is_transition_using_filler_clip(int p_from_clip, int p_to_clip) const;
 	int get_transition_filler_clip(int p_from_clip, int p_to_clip) const;
 	bool is_transition_holding_previous(int p_from_clip, int p_to_clip) const;
+	TransitionToCueTiming get_transition_to_cue_timing(int p_from_clip, int p_to_clip) const;
+	float get_transition_fade_offset_beats(int p_from_clip, int p_to_clip) const;
+	float get_transition_fade_ease_exp(int p_from_clip, int p_to_clip) const;
+	float get_transition_to_fade_beats(int p_from_clip, int p_to_clip) const;
+	float get_transition_to_fade_offset_beats(int p_from_clip, int p_to_clip) const;
+	float get_transition_to_fade_ease_exp(int p_from_clip, int p_to_clip) const;
+	float get_transition_filler_clip_offset_beats(int p_from_clip, int p_to_clip) const;
 
 	bool has_transition(int p_from_clip, int p_to_clip) const;
 	void erase_transition(int p_from_clip, int p_to_clip);
 
 	PackedInt32Array get_transition_list() const;
+
+	TransitionMixResult mix_transition(int p_from_clip, int p_to_clip, float from_pos, bool p_is_auto_advance) const;
 
 	virtual Ref<AudioStreamPlayback> instantiate_playback() override;
 	virtual String get_stream_name() const override;
@@ -207,7 +244,7 @@ VARIANT_ENUM_CAST(AudioStreamInteractive::TransitionFromTime)
 VARIANT_ENUM_CAST(AudioStreamInteractive::TransitionToTime)
 VARIANT_ENUM_CAST(AudioStreamInteractive::AutoAdvanceMode)
 VARIANT_ENUM_CAST(AudioStreamInteractive::FadeMode)
-VARIANT_ENUM_CAST(AudioStreamInteractive::TransitionTiming)
+VARIANT_ENUM_CAST(AudioStreamInteractive::TransitionToCueTiming)
 
 class AudioStreamPlaybackInteractive : public AudioStreamPlayback {
 	GDCLASS(AudioStreamPlaybackInteractive, AudioStreamPlayback)
@@ -231,6 +268,9 @@ private:
 		double fade_wait = 0; // Time to wait until fade kicks-in
 		double fade_volume = 1.0;
 		double fade_speed = 0; // Fade speed, negative or positive
+		double fade_ease_exp = 0.0;
+		double fade_ease_t = 1.0;
+		double fade_ease_volume = 0.0;
 		int auto_advance = -1;
 		bool first_mix = true;
 		double previous_position = 0;
@@ -239,6 +279,9 @@ private:
 			fade_wait = 0;
 			fade_volume = 1.0;
 			fade_speed = 0;
+			fade_ease_exp = 0.0;
+			fade_ease_t = 1.0;
+			fade_ease_volume = 0.0;
 		}
 	};
 
@@ -248,9 +291,12 @@ private:
 	bool active = false;
 	int return_memory = -1;
 
+	double playback_time = 0.0;
+
 	void _mix_internal(int p_frames);
 	void _mix_internal_state(int p_state_idx, int p_frames);
 
+	void _start_clip(int p_clip, double p_from_pos);
 	void _queue(int p_to_clip_index, bool p_is_auto_advance);
 
 	int switch_request = -1;
@@ -268,6 +314,8 @@ public:
 	virtual int mix(AudioFrame *p_buffer, float p_rate_scale, int p_frames) override;
 
 	virtual void tag_used_streams() override;
+
+	void start_clip(int p_clip, double p_from_pos = 0.0);
 
 	void switch_to_clip_by_name(const StringName &p_name);
 	void switch_to_clip(int p_index);
