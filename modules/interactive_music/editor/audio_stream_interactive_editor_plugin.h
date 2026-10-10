@@ -35,6 +35,8 @@
 #include "editor/gui/editor_spin_slider.h"
 #include "editor/inspector/editor_inspector.h"
 #include "editor/plugins/editor_plugin.h"
+#include "scene/gui/base_button.h"
+#include "scene/gui/box_container.h"
 #include "scene/gui/dialogs.h"
 
 class AudioStreamPlayer;
@@ -84,8 +86,12 @@ public:
 	AudioStreamInteractiveTransitionChart();
 };
 
-class AudioStreamInteractiveTransitionEditor : public AcceptDialog {
-	GDCLASS(AudioStreamInteractiveTransitionEditor, AcceptDialog);
+class AudioStreamInteractiveTransitionEaseSlider : public VBoxContainer {
+	GDCLASS(AudioStreamInteractiveTransitionEaseSlider, VBoxContainer);
+
+	static constexpr double EASE_EXP_MIN = 1.0 / 128.0;
+	static constexpr double EASE_EXP_MAX = 127.0 / 128.0;
+	static constexpr double EASE_EXP_STEP = 1.0 / 128.0;
 
 	enum {
 		BTN_EASE_LINEAR = 0,
@@ -94,6 +100,40 @@ class AudioStreamInteractiveTransitionEditor : public AcceptDialog {
 		BTN_EASE_ESS = 3,
 		BTN_EASE_OUT_IN = 4,
 	};
+
+	Ref<ButtonGroup> btn_group = nullptr;
+	Button *btn_linear = nullptr;
+	Button *btn_ease_in = nullptr;
+	Button *btn_ease_out = nullptr;
+	Button *btn_ease_ess = nullptr;
+	Button *btn_ease_out_in = nullptr;
+	EditorSpinSlider *exp_slider = nullptr;
+
+	bool is_read_only = false;
+
+	int _ease_to_btn(double p_ease) const;
+	Button *_get_btn(int p_btn) const;
+	double _normalize_ease(double p_ease, int p_btn) const;
+	double _denormalize_ease(double p_ease_norm, int p_btn) const;
+
+	void _btn_pressed(BaseButton *btn);
+	void _slider_changed();
+
+protected:
+	void _notification(int p_what);
+	static void _bind_methods();
+
+public:
+	float get_value() const;
+	void set_value(float p_value);
+
+	void set_read_only(bool p_enable);
+
+	AudioStreamInteractiveTransitionEaseSlider();
+};
+
+class AudioStreamInteractiveTransitionEditor : public AcceptDialog {
+	GDCLASS(AudioStreamInteractiveTransitionEditor, AcceptDialog);
 
 	AudioStreamInteractive *audio_stream_interactive = nullptr;
 
@@ -109,22 +149,10 @@ class AudioStreamInteractiveTransitionEditor : public AcceptDialog {
 	OptionButton *transition_timing = nullptr;
 	SpinBox *fade_beats = nullptr;
 	SpinBox *fade_offset_beats = nullptr;
-	Ref<ButtonGroup> fade_ease_btn_group = nullptr;
-	Button *fade_ease_btn_linear = nullptr;
-	Button *fade_ease_btn_ease_in = nullptr;
-	Button *fade_ease_btn_ease_out = nullptr;
-	Button *fade_ease_btn_ease_ess = nullptr;
-	Button *fade_ease_btn_ease_out_in = nullptr;
-	EditorSpinSlider *fade_ease_exp = nullptr;
+	AudioStreamInteractiveTransitionEaseSlider *fade_ease_exp = nullptr;
 	SpinBox *to_fade_beats = nullptr;
 	SpinBox *to_fade_offset_beats = nullptr;
-	Ref<ButtonGroup> to_fade_ease_btn_group = nullptr;
-	Button *to_fade_ease_btn_linear = nullptr;
-	Button *to_fade_ease_btn_ease_in = nullptr;
-	Button *to_fade_ease_btn_ease_out = nullptr;
-	Button *to_fade_ease_btn_ease_ess = nullptr;
-	Button *to_fade_ease_btn_ease_out_in = nullptr;
-	EditorSpinSlider *to_fade_ease_exp = nullptr;
+	AudioStreamInteractiveTransitionEaseSlider *to_fade_ease_exp = nullptr;
 	OptionButton *filler_clip = nullptr;
 	SpinBox *filler_clip_offset_beats = nullptr;
 	CheckBox *hold_previous = nullptr;
@@ -145,6 +173,7 @@ class AudioStreamInteractiveTransitionEditor : public AcceptDialog {
 	Vector<Vector2i> selected;
 	Vector2i editing_transition;
 	bool updating = false;
+
 	void _cell_selected(TreeItem *p_item, int p_column, bool p_selected);
 	void _update_transitions();
 
@@ -155,10 +184,6 @@ class AudioStreamInteractiveTransitionEditor : public AcceptDialog {
 	void _update_preview_controls();
 	void _preview_start();
 	void _preview_stop();
-
-	int _ease_to_btn(double p_ease) const;
-	double _normalize_ease(double p_ease, int p_btn) const;
-	double _denormalize_ease(double p_ease_norm, int p_btn) const;
 
 protected:
 	void _notification(int p_what);

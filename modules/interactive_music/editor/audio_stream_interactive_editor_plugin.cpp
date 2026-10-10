@@ -292,6 +292,175 @@ AudioStreamInteractiveTransitionChart::AudioStreamInteractiveTransitionChart() {
 
 ////////////////////////
 
+int AudioStreamInteractiveTransitionEaseSlider::_ease_to_btn(double p_ease) const {
+	if (p_ease == 0.0) {
+		return BTN_EASE_LINEAR;
+	} else if (p_ease > 0.0 && p_ease < 1.0) {
+		return BTN_EASE_IN;
+	} else if (p_ease >= 1.0) {
+		return BTN_EASE_OUT;
+	} else if (p_ease <= -1.0) {
+		return BTN_EASE_ESS;
+	} else {
+		return BTN_EASE_OUT_IN;
+	}
+}
+
+Button *AudioStreamInteractiveTransitionEaseSlider::_get_btn(int p_btn) const {
+	switch (p_btn) {
+		case BTN_EASE_LINEAR:
+			return btn_linear;
+		case BTN_EASE_IN:
+			return btn_ease_in;
+		case BTN_EASE_OUT:
+			return btn_ease_out;
+		case BTN_EASE_ESS:
+			return btn_ease_ess;
+		case BTN_EASE_OUT_IN:
+			return btn_ease_out_in;
+		default:
+			ERR_FAIL_V_MSG(nullptr, "Bug: Invalid p_btn.");
+	}
+}
+
+double AudioStreamInteractiveTransitionEaseSlider::_normalize_ease(double p_ease, int p_btn) const {
+	switch (p_btn) {
+		case BTN_EASE_LINEAR:
+			return 0.0;
+		case BTN_EASE_IN:
+			return CLAMP(1.0 - p_ease, EASE_EXP_MIN, EASE_EXP_MAX);
+		case BTN_EASE_OUT:
+			return CLAMP(Math::atan(p_ease - 1.0) * 2.0 / Math::PI, EASE_EXP_MIN, EASE_EXP_MAX);
+		case BTN_EASE_ESS:
+			return CLAMP(Math::atan(-p_ease - 1.0) * 2.0 / Math::PI, EASE_EXP_MIN, EASE_EXP_MAX);
+		case BTN_EASE_OUT_IN:
+			return CLAMP(1.0 + p_ease, EASE_EXP_MIN, EASE_EXP_MAX);
+		default:
+			ERR_FAIL_V_MSG(0.0, "Bug: Invalid p_btn.");
+	}
+}
+
+double AudioStreamInteractiveTransitionEaseSlider::_denormalize_ease(double p_ease_norm, int p_btn) const {
+	switch (p_btn) {
+		case BTN_EASE_LINEAR:
+			return 0.0;
+		case BTN_EASE_IN:
+			return 1.0 - p_ease_norm;
+		case BTN_EASE_OUT:
+			return 1.0 + Math::tan(p_ease_norm * Math::PI / 2.0);
+		case BTN_EASE_ESS:
+			return -1.0 - Math::tan(p_ease_norm * Math::PI / 2.0);
+		case BTN_EASE_OUT_IN:
+			return -1.0 + p_ease_norm;
+		default:
+			ERR_FAIL_V_MSG(0.0, "Bug: Invalid p_btn.");
+	}
+}
+
+void AudioStreamInteractiveTransitionEaseSlider::_btn_pressed(BaseButton *btn) {
+	if (btn == btn_linear) {
+		exp_slider->set_min(0.0);
+		exp_slider->set_max(0.0);
+		exp_slider->set_read_only(true);
+	} else {
+		exp_slider->set_min(EASE_EXP_MIN);
+		exp_slider->set_max(EASE_EXP_MAX);
+		exp_slider->set_read_only(false);
+	}
+	emit_signal(SNAME("value_changed"));
+}
+
+void AudioStreamInteractiveTransitionEaseSlider::_slider_changed() {
+	emit_signal(SNAME("value_changed"));
+}
+
+float AudioStreamInteractiveTransitionEaseSlider::get_value() const {
+	ERR_FAIL_NULL_V(btn_group->get_pressed_button(), 0.0);
+	return _denormalize_ease(exp_slider->get_value(), btn_group->get_pressed_button()->get_index());
+}
+
+void AudioStreamInteractiveTransitionEaseSlider::set_value(float p_value) {
+	int btn = _ease_to_btn(p_value);
+	_get_btn(btn)->set_pressed(true);
+	float val = _normalize_ease(p_value, btn);
+	exp_slider->set_value(val);
+}
+
+void AudioStreamInteractiveTransitionEaseSlider::set_read_only(bool p_enable) {
+	btn_linear->set_disabled(p_enable);
+	btn_ease_in->set_disabled(p_enable);
+	btn_ease_out->set_disabled(p_enable);
+	btn_ease_ess->set_disabled(p_enable);
+	btn_ease_out_in->set_disabled(p_enable);
+	exp_slider->set_read_only(p_enable);
+}
+
+void AudioStreamInteractiveTransitionEaseSlider::_notification(int p_what) {
+	switch (p_what) {
+		case NOTIFICATION_READY:
+		case NOTIFICATION_THEME_CHANGED: {
+			btn_linear->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseLinear")));
+			btn_ease_in->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseIn")));
+			btn_ease_out->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseOut")));
+			btn_ease_ess->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseEss")));
+			btn_ease_out_in->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseOutIn")));
+		} break;
+	}
+}
+
+void AudioStreamInteractiveTransitionEaseSlider::_bind_methods() {
+	ADD_SIGNAL(MethodInfo("value_changed"));
+}
+
+AudioStreamInteractiveTransitionEaseSlider::AudioStreamInteractiveTransitionEaseSlider() {
+	HBoxContainer *btn_hbox = memnew(HBoxContainer);
+	add_child(btn_hbox);
+
+	btn_group = memnew(ButtonGroup);
+	btn_group->connect(SNAME("pressed"), callable_mp(this, &AudioStreamInteractiveTransitionEaseSlider::_btn_pressed));
+
+	btn_linear = memnew(Button);
+	btn_hbox->add_child(btn_linear);
+	btn_linear->set_accessibility_name("Linear");
+	btn_linear->set_toggle_mode(true);
+	btn_linear->set_pressed(true);
+	btn_linear->set_button_group(btn_group);
+
+	btn_ease_in = memnew(Button);
+	btn_hbox->add_child(btn_ease_in);
+	btn_ease_in->set_accessibility_name("Ease In");
+	btn_ease_in->set_toggle_mode(true);
+	btn_ease_in->set_button_group(btn_group);
+
+	btn_ease_out = memnew(Button);
+	btn_hbox->add_child(btn_ease_out);
+	btn_ease_out->set_accessibility_name("Ease Out");
+	btn_ease_out->set_toggle_mode(true);
+	btn_ease_out->set_button_group(btn_group);
+
+	btn_ease_ess = memnew(Button);
+	btn_hbox->add_child(btn_ease_ess);
+	btn_ease_ess->set_accessibility_name("S-Curve");
+	btn_ease_ess->set_toggle_mode(true);
+	btn_ease_ess->set_button_group(btn_group);
+
+	btn_ease_out_in = memnew(Button);
+	btn_hbox->add_child(btn_ease_out_in);
+	btn_ease_out_in->set_accessibility_name("Ease Out-In");
+	btn_ease_out_in->set_toggle_mode(true);
+	btn_ease_out_in->set_button_group(btn_group);
+
+	exp_slider = memnew(EditorSpinSlider);
+	add_child(exp_slider);
+	exp_slider->set_min(0.0);
+	exp_slider->set_max(0.0);
+	exp_slider->set_step(EASE_EXP_STEP);
+	exp_slider->connect(SceneStringName(value_changed), callable_mp(this, &AudioStreamInteractiveTransitionEaseSlider::_slider_changed).unbind(1));
+	exp_slider->set_accessibility_name(TTRC("Fade Ease Exp:"));
+}
+
+////////////////////////
+
 void AudioStreamInteractiveTransitionEditor::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_READY:
@@ -305,18 +474,6 @@ void AudioStreamInteractiveTransitionEditor::_notification(int p_what) {
 
 			preview_play->set_button_icon(get_editor_theme_icon(SNAME("Play")));
 			preview_stop->set_button_icon(get_editor_theme_icon(SNAME("Stop")));
-
-			fade_ease_btn_linear->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseLinear")));
-			fade_ease_btn_ease_in->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseIn")));
-			fade_ease_btn_ease_out->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseOut")));
-			fade_ease_btn_ease_ess->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseEss")));
-			fade_ease_btn_ease_out_in->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseOutIn")));
-
-			to_fade_ease_btn_linear->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseLinear")));
-			to_fade_ease_btn_ease_in->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseIn")));
-			to_fade_ease_btn_ease_out->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseOut")));
-			to_fade_ease_btn_ease_ess->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseEss")));
-			to_fade_ease_btn_ease_out_in->set_button_icon(get_editor_theme_icon(SNAME("AudioStreamInteractiveEaseOutIn")));
 		} break;
 
 		case NOTIFICATION_VISIBILITY_CHANGED: {
@@ -364,14 +521,10 @@ void AudioStreamInteractiveTransitionEditor::_edited() {
 	AudioStreamInteractive::TransitionToCueTiming timing = AudioStreamInteractive::TransitionToCueTiming(transition_timing->get_selected());
 	float beats = fade_beats->get_value();
 	float offset_beats = fade_offset_beats->get_value();
-	int fade_ease_btn = fade_ease_btn_group->get_pressed_button()->get_index();
-	fade_ease_exp->set_read_only(fade_ease_btn == BTN_EASE_LINEAR);
-	float ease_exp = _denormalize_ease(fade_ease_exp->get_value(), fade_ease_btn);
+	float ease_exp = fade_ease_exp->get_value();
 	float to_beats = to_fade_beats->get_value();
 	float to_offset_beats = to_fade_offset_beats->get_value();
-	int to_fade_ease_btn = to_fade_ease_btn_group->get_pressed_button()->get_index();
-	to_fade_ease_exp->set_read_only(to_fade_ease_btn == BTN_EASE_LINEAR);
-	float to_ease_exp = _denormalize_ease(to_fade_ease_exp->get_value(), to_fade_ease_btn);
+	float to_ease_exp = to_fade_ease_exp->get_value();
 	bool use_filler = filler_clip->get_selected() > 0;
 	float filler_delay_beats = filler_clip_offset_beats->get_value();
 	int filler = use_filler ? filler_clip->get_selected() - 1 : 0;
@@ -499,19 +652,9 @@ void AudioStreamInteractiveTransitionEditor::_update_selection() {
 	transition_timing->set_disabled(selected.is_empty());
 	fade_beats->set_editable(!selected.is_empty());
 	fade_offset_beats->set_editable(!selected.is_empty());
-	fade_ease_btn_linear->set_disabled(selected.is_empty());
-	fade_ease_btn_ease_in->set_disabled(selected.is_empty());
-	fade_ease_btn_ease_out->set_disabled(selected.is_empty());
-	fade_ease_btn_ease_ess->set_disabled(selected.is_empty());
-	fade_ease_btn_ease_out_in->set_disabled(selected.is_empty());
 	fade_ease_exp->set_read_only(selected.is_empty());
 	to_fade_beats->set_editable(!selected.is_empty());
 	to_fade_offset_beats->set_editable(!selected.is_empty());
-	to_fade_ease_btn_linear->set_disabled(selected.is_empty());
-	to_fade_ease_btn_ease_in->set_disabled(selected.is_empty());
-	to_fade_ease_btn_ease_out->set_disabled(selected.is_empty());
-	to_fade_ease_btn_ease_ess->set_disabled(selected.is_empty());
-	to_fade_ease_btn_ease_out_in->set_disabled(selected.is_empty());
 	to_fade_ease_exp->set_read_only(selected.is_empty());
 	filler_clip->set_disabled(selected.is_empty());
 	filler_clip_offset_beats->set_editable(!selected.is_empty());
@@ -534,11 +677,9 @@ void AudioStreamInteractiveTransitionEditor::_update_selection() {
 		transition_timing->select(AudioStreamInteractive::TRANSITION_TO_CUE_TIMING_DEFAULT);
 		fade_beats->set_value(1.0);
 		fade_offset_beats->set_value(0.0);
-		fade_ease_btn_linear->set_pressed(true);
 		fade_ease_exp->set_value(0.0);
 		to_fade_beats->set_value(0.0);
 		to_fade_offset_beats->set_value(0.0);
-		to_fade_ease_btn_linear->set_pressed(true);
 		to_fade_ease_exp->set_value(0.0);
 		filler_clip->select(0);
 		filler_clip_offset_beats->set_value(0.0);
@@ -551,48 +692,12 @@ void AudioStreamInteractiveTransitionEditor::_update_selection() {
 		transition_timing->select(audio_stream_interactive->get_transition_to_cue_timing(editing.x, editing.y));
 		fade_beats->set_value(audio_stream_interactive->get_transition_fade_beats(editing.x, editing.y));
 		fade_offset_beats->set_value(audio_stream_interactive->get_transition_fade_offset_beats(editing.x, editing.y));
-		float fade_ease_exp_val = audio_stream_interactive->get_transition_fade_ease_exp(editing.x, editing.y);
-		int fade_ease_btn = _ease_to_btn(fade_ease_exp_val);
-		fade_ease_exp->set_value(_normalize_ease(fade_ease_exp_val, fade_ease_btn));
-		switch (fade_ease_btn) {
-			case BTN_EASE_LINEAR:
-				fade_ease_btn_linear->set_pressed(true);
-				break;
-			case BTN_EASE_IN:
-				fade_ease_btn_ease_in->set_pressed(true);
-				break;
-			case BTN_EASE_OUT:
-				fade_ease_btn_ease_out->set_pressed(true);
-				break;
-			case BTN_EASE_ESS:
-				fade_ease_btn_ease_ess->set_pressed(true);
-				break;
-			case BTN_EASE_OUT_IN:
-				fade_ease_btn_ease_out_in->set_pressed(true);
-				break;
-		}
+		fade_ease_exp->set_read_only(false);
+		fade_ease_exp->set_value(audio_stream_interactive->get_transition_fade_ease_exp(editing.x, editing.y));
 		to_fade_beats->set_value(audio_stream_interactive->get_transition_to_fade_beats(editing.x, editing.y));
 		to_fade_offset_beats->set_value(audio_stream_interactive->get_transition_to_fade_offset_beats(editing.x, editing.y));
-		float to_fade_ease_exp_val = audio_stream_interactive->get_transition_to_fade_ease_exp(editing.x, editing.y);
-		int to_fade_ease_btn = _ease_to_btn(to_fade_ease_exp_val);
-		to_fade_ease_exp->set_value(_normalize_ease(to_fade_ease_exp_val, to_fade_ease_btn));
-		switch (fade_ease_btn) {
-			case BTN_EASE_LINEAR:
-				to_fade_ease_btn_linear->set_pressed(true);
-				break;
-			case BTN_EASE_IN:
-				to_fade_ease_btn_ease_in->set_pressed(true);
-				break;
-			case BTN_EASE_OUT:
-				to_fade_ease_btn_ease_out->set_pressed(true);
-				break;
-			case BTN_EASE_ESS:
-				to_fade_ease_btn_ease_ess->set_pressed(true);
-				break;
-			case BTN_EASE_OUT_IN:
-				to_fade_ease_btn_ease_out_in->set_pressed(true);
-				break;
-		}
+		to_fade_ease_exp->set_read_only(false);
+		to_fade_ease_exp->set_value(audio_stream_interactive->get_transition_to_fade_ease_exp(editing.x, editing.y));
 		if (audio_stream_interactive->is_transition_using_filler_clip(editing.x, editing.y)) {
 			filler_clip->select(audio_stream_interactive->get_transition_filler_clip(editing.x, editing.y) + 1);
 			filler_clip_offset_beats->set_value(audio_stream_interactive->get_transition_filler_clip_offset_beats(editing.x, editing.y));
@@ -785,54 +890,6 @@ void AudioStreamInteractiveTransitionEditor::edit(Object *p_obj) {
 	_update_transitions();
 }
 
-int AudioStreamInteractiveTransitionEditor::_ease_to_btn(double p_ease) const {
-	if (p_ease == 0.0) {
-		return BTN_EASE_LINEAR;
-	} else if (p_ease > 0.0 && p_ease < 1.0) {
-		return BTN_EASE_IN;
-	} else if (p_ease >= 1.0) {
-		return BTN_EASE_OUT;
-	} else if (p_ease <= -1.0) {
-		return BTN_EASE_ESS;
-	} else {
-		return BTN_EASE_OUT_IN;
-	}
-}
-
-double AudioStreamInteractiveTransitionEditor::_normalize_ease(double p_ease, int p_btn) const {
-	switch (p_btn) {
-		case BTN_EASE_LINEAR:
-			return 0.0;
-		case BTN_EASE_IN:
-			return 1.0 - p_ease;
-		case BTN_EASE_OUT:
-			return Math::atan(p_ease - 1.0) * 2.0 / Math::PI;
-		case BTN_EASE_ESS:
-			return Math::atan(-p_ease - 1.0) * 2.0 / Math::PI;
-		case BTN_EASE_OUT_IN:
-			return 1.0 + p_ease;
-		default:
-			ERR_FAIL_V_MSG(0.0, "Bug: Invalid p_btn.");
-	}
-}
-
-double AudioStreamInteractiveTransitionEditor::_denormalize_ease(double p_ease_norm, int p_btn) const {
-	switch (p_btn) {
-		case BTN_EASE_LINEAR:
-			return 0.0;
-		case BTN_EASE_IN:
-			return 1.0 - p_ease_norm;
-		case BTN_EASE_OUT:
-			return 1.0 + Math::tan(p_ease_norm * Math::PI / 2.0);
-		case BTN_EASE_ESS:
-			return -1.0 - Math::tan(p_ease_norm * Math::PI / 2.0);
-		case BTN_EASE_OUT_IN:
-			return -1.0 + p_ease_norm;
-		default:
-			ERR_FAIL_V_MSG(0.0, "Bug: Invalid p_btn.");
-	}
-}
-
 AudioStreamInteractiveTransitionEditor::AudioStreamInteractiveTransitionEditor() {
 	set_title(TTR("AudioStreamInteractive Transition Editor"));
 	VSplitContainer *vsplit = memnew(VSplitContainer);
@@ -916,55 +973,9 @@ AudioStreamInteractiveTransitionEditor::AudioStreamInteractiveTransitionEditor()
 	fade_offset_beats->connect(SceneStringName(value_changed), callable_mp(this, &AudioStreamInteractiveTransitionEditor::_edited).unbind(1));
 	fade_offset_beats->set_accessibility_name(TTRC("Fade Offset Beats:"));
 
-	{
-		VBoxContainer *ease_vbox = memnew(VBoxContainer);
-		edit_vb->add_margin_child(TTR("Fade Ease Exp:"), ease_vbox);
-
-		HBoxContainer *btn_hbox = memnew(HBoxContainer);
-		ease_vbox->add_child(btn_hbox);
-
-		fade_ease_btn_group = memnew(ButtonGroup);
-		fade_ease_btn_group->connect(SNAME("pressed"), callable_mp(this, &AudioStreamInteractiveTransitionEditor::_edited).unbind(1));
-
-		fade_ease_btn_linear = memnew(Button);
-		btn_hbox->add_child(fade_ease_btn_linear);
-		fade_ease_btn_linear->set_accessibility_name("Linear");
-		fade_ease_btn_linear->set_toggle_mode(true);
-		fade_ease_btn_linear->set_pressed(true);
-		fade_ease_btn_linear->set_button_group(fade_ease_btn_group);
-
-		fade_ease_btn_ease_in = memnew(Button);
-		btn_hbox->add_child(fade_ease_btn_ease_in);
-		fade_ease_btn_ease_in->set_accessibility_name("Ease In");
-		fade_ease_btn_ease_in->set_toggle_mode(true);
-		fade_ease_btn_ease_in->set_button_group(fade_ease_btn_group);
-
-		fade_ease_btn_ease_out = memnew(Button);
-		btn_hbox->add_child(fade_ease_btn_ease_out);
-		fade_ease_btn_ease_out->set_accessibility_name("Ease Out");
-		fade_ease_btn_ease_out->set_toggle_mode(true);
-		fade_ease_btn_ease_out->set_button_group(fade_ease_btn_group);
-
-		fade_ease_btn_ease_ess = memnew(Button);
-		btn_hbox->add_child(fade_ease_btn_ease_ess);
-		fade_ease_btn_ease_ess->set_accessibility_name("S-Curve");
-		fade_ease_btn_ease_ess->set_toggle_mode(true);
-		fade_ease_btn_ease_ess->set_button_group(fade_ease_btn_group);
-
-		fade_ease_btn_ease_out_in = memnew(Button);
-		btn_hbox->add_child(fade_ease_btn_ease_out_in);
-		fade_ease_btn_ease_out_in->set_accessibility_name("Ease Out-In");
-		fade_ease_btn_ease_out_in->set_toggle_mode(true);
-		fade_ease_btn_ease_out_in->set_button_group(fade_ease_btn_group);
-
-		fade_ease_exp = memnew(EditorSpinSlider);
-		ease_vbox->add_child(fade_ease_exp);
-		fade_ease_exp->set_min(0.0);
-		fade_ease_exp->set_max(1.0);
-		fade_ease_exp->set_step(0.01);
-		fade_ease_exp->connect(SceneStringName(value_changed), callable_mp(this, &AudioStreamInteractiveTransitionEditor::_edited).unbind(1));
-		fade_ease_exp->set_accessibility_name(TTRC("Fade Ease Exp:"));
-	}
+	fade_ease_exp = memnew(AudioStreamInteractiveTransitionEaseSlider);
+	edit_vb->add_margin_child(TTR("Fade Ease Exp:"), fade_ease_exp);
+	fade_ease_exp->connect(SNAME("value_changed"), callable_mp(this, &AudioStreamInteractiveTransitionEditor::_edited));
 
 	to_fade_beats = memnew(SpinBox);
 	edit_vb->add_margin_child(TTR("To Fade Beats:"), to_fade_beats);
@@ -981,55 +992,9 @@ AudioStreamInteractiveTransitionEditor::AudioStreamInteractiveTransitionEditor()
 	to_fade_offset_beats->connect(SceneStringName(value_changed), callable_mp(this, &AudioStreamInteractiveTransitionEditor::_edited).unbind(1));
 	to_fade_offset_beats->set_accessibility_name(TTRC("To Fade Offset Beats:"));
 
-	{
-		VBoxContainer *ease_vbox = memnew(VBoxContainer);
-		edit_vb->add_margin_child(TTR("To Fade Ease Exp:"), ease_vbox);
-
-		HBoxContainer *btn_hbox = memnew(HBoxContainer);
-		ease_vbox->add_child(btn_hbox);
-
-		to_fade_ease_btn_group = memnew(ButtonGroup);
-		to_fade_ease_btn_group->connect(SNAME("pressed"), callable_mp(this, &AudioStreamInteractiveTransitionEditor::_edited).unbind(1));
-
-		to_fade_ease_btn_linear = memnew(Button);
-		btn_hbox->add_child(to_fade_ease_btn_linear);
-		to_fade_ease_btn_linear->set_accessibility_name("Linear");
-		to_fade_ease_btn_linear->set_toggle_mode(true);
-		to_fade_ease_btn_linear->set_pressed(true);
-		to_fade_ease_btn_linear->set_button_group(to_fade_ease_btn_group);
-
-		to_fade_ease_btn_ease_in = memnew(Button);
-		btn_hbox->add_child(to_fade_ease_btn_ease_in);
-		to_fade_ease_btn_ease_in->set_accessibility_name("Ease In");
-		to_fade_ease_btn_ease_in->set_toggle_mode(true);
-		to_fade_ease_btn_ease_in->set_button_group(to_fade_ease_btn_group);
-
-		to_fade_ease_btn_ease_out = memnew(Button);
-		btn_hbox->add_child(to_fade_ease_btn_ease_out);
-		to_fade_ease_btn_ease_out->set_accessibility_name("Ease Out");
-		to_fade_ease_btn_ease_out->set_toggle_mode(true);
-		to_fade_ease_btn_ease_out->set_button_group(to_fade_ease_btn_group);
-
-		to_fade_ease_btn_ease_ess = memnew(Button);
-		btn_hbox->add_child(to_fade_ease_btn_ease_ess);
-		to_fade_ease_btn_ease_ess->set_accessibility_name("S-Curve");
-		to_fade_ease_btn_ease_ess->set_toggle_mode(true);
-		to_fade_ease_btn_ease_ess->set_button_group(to_fade_ease_btn_group);
-
-		to_fade_ease_btn_ease_out_in = memnew(Button);
-		btn_hbox->add_child(to_fade_ease_btn_ease_out_in);
-		to_fade_ease_btn_ease_out_in->set_accessibility_name("Ease Out-In");
-		to_fade_ease_btn_ease_out_in->set_toggle_mode(true);
-		to_fade_ease_btn_ease_out_in->set_button_group(to_fade_ease_btn_group);
-
-		to_fade_ease_exp = memnew(EditorSpinSlider);
-		ease_vbox->add_child(to_fade_ease_exp);
-		to_fade_ease_exp->set_min(0.0);
-		to_fade_ease_exp->set_max(1.0);
-		to_fade_ease_exp->set_step(0.01);
-		to_fade_ease_exp->connect(SceneStringName(value_changed), callable_mp(this, &AudioStreamInteractiveTransitionEditor::_edited).unbind(1));
-		to_fade_ease_exp->set_accessibility_name(TTRC("To Fade Ease Exp:"));
-	}
+	to_fade_ease_exp = memnew(AudioStreamInteractiveTransitionEaseSlider);
+	edit_vb->add_margin_child(TTR("To Fade Ease Exp:"), to_fade_ease_exp);
+	to_fade_ease_exp->connect(SNAME("value_changed"), callable_mp(this, &AudioStreamInteractiveTransitionEditor::_edited));
 
 	filler_clip = memnew(OptionButton);
 	edit_vb->add_margin_child(TTR("Filler Clip:"), filler_clip);
