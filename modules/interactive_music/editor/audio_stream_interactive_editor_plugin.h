@@ -87,6 +87,14 @@ public:
 class AudioStreamInteractiveTransitionEditor : public AcceptDialog {
 	GDCLASS(AudioStreamInteractiveTransitionEditor, AcceptDialog);
 
+	enum {
+		BTN_EASE_LINEAR = 0,
+		BTN_EASE_IN = 1,
+		BTN_EASE_OUT = 2,
+		BTN_EASE_ESS = 3,
+		BTN_EASE_OUT_IN = 4,
+	};
+
 	AudioStreamInteractive *audio_stream_interactive = nullptr;
 
 	HSplitContainer *split = nullptr;
@@ -101,9 +109,21 @@ class AudioStreamInteractiveTransitionEditor : public AcceptDialog {
 	OptionButton *transition_timing = nullptr;
 	SpinBox *fade_beats = nullptr;
 	SpinBox *fade_offset_beats = nullptr;
+	Ref<ButtonGroup> fade_ease_btn_group = nullptr;
+	Button *fade_ease_btn_linear = nullptr;
+	Button *fade_ease_btn_ease_in = nullptr;
+	Button *fade_ease_btn_ease_out = nullptr;
+	Button *fade_ease_btn_ease_ess = nullptr;
+	Button *fade_ease_btn_ease_out_in = nullptr;
 	EditorSpinSlider *fade_ease_exp = nullptr;
 	SpinBox *to_fade_beats = nullptr;
 	SpinBox *to_fade_offset_beats = nullptr;
+	Ref<ButtonGroup> to_fade_ease_btn_group = nullptr;
+	Button *to_fade_ease_btn_linear = nullptr;
+	Button *to_fade_ease_btn_ease_in = nullptr;
+	Button *to_fade_ease_btn_ease_out = nullptr;
+	Button *to_fade_ease_btn_ease_ess = nullptr;
+	Button *to_fade_ease_btn_ease_out_in = nullptr;
 	EditorSpinSlider *to_fade_ease_exp = nullptr;
 	OptionButton *filler_clip = nullptr;
 	SpinBox *filler_clip_offset_beats = nullptr;
@@ -135,6 +155,10 @@ class AudioStreamInteractiveTransitionEditor : public AcceptDialog {
 	void _update_preview_controls();
 	void _preview_start();
 	void _preview_stop();
+
+	int _ease_to_btn(double p_ease) const;
+	double _normalize_ease(double p_ease, int p_btn) const;
+	double _denormalize_ease(double p_ease_norm, int p_btn) const;
 
 protected:
 	void _notification(int p_what);
